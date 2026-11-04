@@ -1,0 +1,8 @@
+# ignore everything
+**
+
+# include what we need
+!go.mod
+!go.sum
+!*.go
+!LICENSE
