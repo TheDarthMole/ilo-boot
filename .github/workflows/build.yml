@@ -1,0 +1,101 @@
+name: Docker
+
+on:
+  pull_request:
+
+env:
+  platforms: "linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/riscv64" # legacy/enterprise-only technology linux/s390x,linux/ppc64le,linux/386
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-build-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      id-token: write # This is required for requesting the JWT for CoSign
+      contents: read # This is required for actions/checkout
+      packages: write # This is required for pushing Docker images to ghcr.io
+    steps:
+      - name: 🛡️ Harden Runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            auth.docker.io:443
+            docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com:443
+            ghcr.io:443
+            github.com:443
+            index.docker.io:443
+            objects.githubusercontent.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
+            proxy.golang.org:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            release-assets.githubusercontent.com:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 🏗️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: setup-buildx
+
+      - name: 🏷️ Fetch git tags for `git describe`
+        run: "git fetch --force --prune --unshallow --tags"
+
+      - name: 📝 Run `git describe` and save its output
+        run: echo 'GIT_DESCRIBE='`git describe --tags --always --long` >> $GITHUB_OUTPUT
+        id: git-describe
+
+      - name: 📝 Calculate metadata for minimal Docker images
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: meta
+        with:
+          images: |
+            ${{ vars.DOCKER_USERNAME }}/${{ vars.DOCKER_PROJECT }}
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern=v{{major}}
+            type=edge
+          annotations: |
+            io.artifacthub.package.license=GPL-3.0
+            io.artifacthub.package.readme-url=https://github.com/${{ github.repository }}/blob/main/README.md
+            io.artifacthub.package.maintainers=[{"name":"DarthMole","email":"ilo-boot@darthmole.dev"}]
+          labels: |
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/README.md
+            org.opencontainers.image.authors=[{"name":"DarthMole","email":"ilo-boot@darthmole.dev"}]
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+
+      - name: 🚀 Build and deploy minimal Docker images
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
+        with:
+          target: "minimal"
+          context: .
+          file: ./Dockerfile
+          push: false
+          cache-from: "type=gha"
+          cache-to: ""
+          build-args: |
+            ${{ format('GIT_DESCRIBE={0}', steps.git-describe.outputs.GIT_DESCRIBE) }}
+          platforms: ${{ env.platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: "mode=max"
