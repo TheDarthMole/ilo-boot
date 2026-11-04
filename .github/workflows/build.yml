@@ -65,7 +65,6 @@ jobs:
         id: meta
         with:
           images: |
-            ${{ vars.DOCKER_USERNAME }}/${{ vars.DOCKER_PROJECT }}
             ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern=v{{version}}
